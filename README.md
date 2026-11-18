@@ -2,13 +2,13 @@
 
 A client that modifies any website of your choosing!
 
-**Live Site:** [https://github.io](https://github.io)
+**Live Site:** [https://starlightgg.github.io/NovaScriptin-Hub/](https://starlightgg.github.io/NovaScriptin-Hub/)
 
 ---
 
 ## Quick Start
 
-You can run NovaScriptin-Hub via a bookmarklet or directly through your browser's developer console. Visit the [NovaScriptin-Hub Script Loader](https://github.io) to grab the code for either method.
+You can run NovaScriptin-Hub via a bookmarklet or directly through your browser's developer console. Visit the [NovaScriptin-Hub Script Loader](https://starlightgg.github.io/NovaScriptin-Hub/) to grab the code for either method.
 
 ### Option 1: Bookmarklet
 1. Copy the bookmarklet code from the live site.
