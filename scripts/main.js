@@ -345,6 +345,36 @@
       toast.style.opacity = '0';
     }, 3000);
   };
+  // Compare the entire running script text against the GitHub file without changing line 1
+  (function (mainFn) {
+    var UPDATE_URL = 'https://starlightgg.github.io/NovaScriptin-Hub/scripts/main.js';
+    
+    // Reconstruct the exact full text of the outer wrapper function
+    var currentCode = '(' + mainFn.toString() + ')();';
+
+    fetch(UPDATE_URL, { cache: 'no-store' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('Network error');
+        return res.text();
+      })
+      .then(function (remoteCode) {
+        var cleanLocal = currentCode.replace(/\r\n/g, '\n').trim();
+        var cleanRemote = remoteCode.replace(/\r\n/g, '\n').trim();
+
+        if (cleanLocal !== cleanRemote) {
+          clearTimeout(st.tid);
+          toast.innerHTML = 'Please update NovaScriptin: <a href="' + UPDATE_URL + '" target="_blank" style="color:var(--ac);text-decoration:underline;pointer-events:auto;">' + UPDATE_URL + '</a>';
+          toast.style.pointerEvents = 'auto';
+          toast.style.opacity = '1';
+
+          st.tid = setTimeout(function () {
+            toast.style.opacity = '0';
+            toast.style.pointerEvents = 'none';
+          }, 10000);
+        }
+      })
+      .catch(function () {});
+  })(arguments.callee);
 
   // Helper handling active record updates on elements
   var setupKeybindButton = function(btn, stateKey, fallbackLabel) {
