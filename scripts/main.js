@@ -83,7 +83,8 @@
     '@media (max-width:640px){#novascriptin-hub{width:min(92vw,380px);height:62vh}#nova-ai-ovl{width:min(92vw,320px);height:min(60vh,430px)}#nova-ac-ovl{width:min(70vw,265px)}.nova-pop{width:min(86vw,260px)}}';
   // No text selection / touch callout anywhere in the UI except real input fields
   css.textContent +=
-    '.nova-box *:not(input):not(textarea){-webkit-user-select:none !important;user-select:none !important;-webkit-touch-callout:none}';
+    '.nova-box *:not(input):not(textarea){-webkit-user-select:none !important;user-select:none !important;-webkit-touch-callout:none}' +
+    '.nova-box input,.nova-box textarea,.nova-box select{-webkit-user-select:text !important;user-select:text !important;-webkit-touch-callout:default}';
   shadow.appendChild(css);
 
   // Block right-click menu, text selection and dragging on all Nova UI
@@ -352,9 +353,11 @@
   var showToast = function (msg) {
     clearTimeout(st.tid);
     toast.textContent = msg;
+    toast.style.pointerEvents = 'none';
     toast.style.opacity = '1';
     st.tid = setTimeout(function () {
       toast.style.opacity = '0';
+      toast.style.pointerEvents = 'none';
     }, 3000);
   };
   // Compare the entire running script text against the GitHub file without changing line 1
@@ -375,7 +378,7 @@
 
         if (cleanLocal !== cleanRemote) {
           clearTimeout(st.tid);
-          toast.innerHTML = 'Please update NovaScriptin: <a href="' + UPDATE_URL + '" target="_blank" style="color:var(--ac);text-decoration:underline;pointer-events:auto;">' + UPDATE_URL + '</a>';
+          toast.innerHTML = 'Please update NovaScriptin: <a href="' + UPDATE_URL + '" target="_blank" style="color:var(--ac);text-decoration:underline;">' + UPDATE_URL + '</a>';
           toast.style.pointerEvents = 'auto';
           toast.style.opacity = '1';
 
