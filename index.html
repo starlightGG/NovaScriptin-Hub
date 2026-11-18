@@ -261,6 +261,13 @@
       padding-left: 1rem;
     }
 
+    /* #error mode: hide tabs + normal cards, show only the error card */
+    body.error-mode .mode-switcher,
+    body.error-mode #cardBookmarklet,
+    body.error-mode #cardConsole {
+      display: none !important;
+    }
+
     #toast {
       position: fixed;
       bottom: 24px;
@@ -393,6 +400,24 @@
         </div>
       </div>
     </section>
+
+    <!-- Only shown when the URL contains #error -->
+    <section class="neu-card" id="cardError">
+      <h2>Got an Error?</h2>
+      <div class="neu-inset error-notice">
+        <p class="caption">
+          If you saw an error like the one below in the console, click <strong>Copy Raw</strong>. It copies <code>scripts/main.js</code> directly to your clipboard so you can paste the full script into the console and press <strong>Enter</strong>.
+        </p>
+        <div class="media-block">
+          <img src="media/error.png" alt="Error screenshot when remote fetch fails" />
+        </div>
+        <div class="action-row">
+          <button class="neu-btn" onclick="copyFile('scripts/main.js', 'Raw main.js')">
+            Copy Raw
+          </button>
+        </div>
+      </div>
+    </section>
   </main>
 
   <div id="toast">Copied!</div>
@@ -457,6 +482,15 @@
         cardConsole.classList.add('visible');
       }
     }
+
+    // Show the error-only view when the URL hash is #error
+    function applyHash() {
+      const isError = location.hash.toLowerCase() === '#error';
+      document.body.classList.toggle('error-mode', isError);
+      document.getElementById('cardError').classList.toggle('visible', isError);
+    }
+    window.addEventListener('hashchange', applyHash);
+    applyHash();
 
     let toastTimer;
     function showToast(message) {
