@@ -81,7 +81,19 @@
     '#nova-tgt:after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#e53e3e}' +
     '@media (pointer:coarse){#nova-res{width:30px;height:30px}.nova-in,.nova-ta,.nova-select{font-size:16px}.nova-cls,.nova-min{width:34px;height:34px}}' +
     '@media (max-width:640px){#novascriptin-hub{width:min(92vw,380px);height:62vh}#nova-ai-ovl{width:min(92vw,320px);height:min(60vh,430px)}#nova-ac-ovl{width:min(70vw,265px)}.nova-pop{width:min(86vw,260px)}}';
+  // No text selection / touch callout anywhere in the UI except real input fields
+  css.textContent +=
+    '.nova-box *:not(input):not(textarea){-webkit-user-select:none !important;user-select:none !important;-webkit-touch-callout:none}';
   shadow.appendChild(css);
+
+  // Block right-click menu, text selection and dragging on all Nova UI
+  ['contextmenu', 'selectstart', 'dragstart'].forEach(function (t) {
+    shadow.addEventListener(t, function (e) {
+      var tag = e.target && e.target.tagName;
+      if (t === 'selectstart' && (tag === 'INPUT' || tag === 'TEXTAREA')) return; // keep typing/selecting inside fields working
+      e.preventDefault();
+    });
+  });
 
   var toast = el('div', { id: 'nova-toast', c: 'nova-box dark' });
   shadow.appendChild(toast);
