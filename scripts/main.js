@@ -947,165 +947,275 @@
   // alone (they show whatever is behind them). Dark text gets lightened,
   // light borders get darkened. Elements with background images/gradients
   // are left untouched. Every change is saved so it can be fully undone.
-  var dm = { on: 0, saved: new Map(), imgBg: new WeakMap(), obs: null };
-  var DM_SKIP = { SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, HEAD: 1, TITLE: 1, NOSCRIPT: 1, IMG: 1, VIDEO: 1, CANVAS: 1, PICTURE: 1, IFRAME: 1, SOURCE: 1, BR: 1 };
+// ───────────────────────── Smart Dark Mode ─────────────────────────
+// ───────────────────────── Smart Dark Mode ─────────────────────────
+var dm = { on: 0, token: 0, saved: new Map(), obs: null, sweep: 0 };
+var DM_SKIP = { SCRIPT:1, STYLE:1, LINK:1, META:1, HEAD:1, TITLE:1, NOSCRIPT:1, IMG:1, VIDEO:1, CANVAS:1, PICTURE:1, IFRAME:1, SOURCE:1, BR:1 };
+var SVG_NS = 'http://www.w3.org/2000/svg';
+var isApplying = false; // Prevents infinite freeze loops when modifying styles
 
-  var parseC = function (s) {
-    var m = /rgba?\(([^)]+)\)/.exec(s || '');
-    if (!m) return null;
-    var p = m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat);
-    if (p.length < 3 || p.some(isNaN)) return null;
-    var a = p.length > 3 ? p[3] : 1;
-    if (a > 1) a = a / 100;
-    return { r: p[0], g: p[1], b: p[2], a: a };
-  };
-  var lum = function (c) {
-    return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
-  };
-  var toHsl = function (c) {
-    var r = c.r / 255, g = c.g / 255, b = c.b / 255;
-    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), h = 0, s = 0, l = (mx + mn) / 2, d = mx - mn;
-    if (d) {
-      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
-      h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
-      h /= 6;
-    }
-    return { h: h, s: s, l: l };
-  };
-  var hueCh = function (p, q, t) {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1 / 6) return p + (q - p) * 6 * t;
-    if (t < 1 / 2) return q;
-    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
-  };
-  var fromHsl = function (h, s, l, a) {
-    var r, g, b;
-    if (!s) {
-      r = g = b = l;
-    } else {
-      var q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
-      r = hueCh(p, q, h + 1 / 3);
-      g = hueCh(p, q, h);
-      b = hueCh(p, q, h - 1 / 3);
-    }
-    return 'rgba(' + Math.round(r * 255) + ',' + Math.round(g * 255) + ',' + Math.round(b * 255) + ',' + a + ')';
-  };
-  var dmBg = function (c) { var h = toHsl(c); return fromHsl(h.h, Math.min(h.s * 0.8, 0.6), 0.07 + (1 - h.l) * 0.2, c.a); };
-  var dmTx = function (c) { var h = toHsl(c); return fromHsl(h.h, Math.min(h.s, 0.9), 0.62 + (1 - h.l) * 0.33, c.a); };
-  var dmBd = function (c) { var h = toHsl(c); return fromHsl(h.h, h.s * 0.6, 0.16 + (1 - h.l) * 0.2, c.a); };
+// Force YouTube to use dark theme variables, including the new suggestion classes
+var YT_SEARCH_CSS = 
+  'ytd-search-suggestions-renderer, ytd-popup-container, tp-yt-iron-dropdown, ' +
+  'tp-yt-iron-dropdown #contentWrapper, ytd-multi-page-menu-renderer, ytd-menu-popup-renderer, ' +
+  'tp-yt-paper-listbox, .ytSuggestionComponentSuggestion, .ytSuggestionComponentLeftContainer ' +
+  '{ background-color: #1e2229 !important; border-color: #333 !important; }' +
+  'ytd-search-suggestions-renderer *, tp-yt-paper-item *, .ytSuggestionComponentSuggestion * ' +
+  '{ color: #fff !important; fill: #fff !important; -webkit-text-fill-color: #fff !important; }' +
+  '.ytSuggestionComponentHighlighted, tp-yt-paper-item:hover, ytd-suggestion-renderer:hover ' +
+  '{ background-color: #2e3440 !important; }';
 
-  var dmSkip = function (e) {
-    return DM_SKIP[e.tagName] || e.namespaceURI !== 'http://www.w3.org/1999/xhtml' || e === host;
-  };
+// Force Google Workspace (Docs, Slides, Classroom) UI to dark
+var GOOGLE_CSS = 
+  '[role="menu"], [role="dialog"], [role="listbox"], .gb_1a, .gb_2a, .gb_3a, .gb_4a, .gb_5a, .gb_6a, .gb_7a, .gb_8a, .gb_9a, .gb_10a ' +
+  '{ background-color: #1e2229 !important; color: #fff !important; border-color: #333 !important; }' +
+  '[role="menuitem"], [role="option"], .google-symbols { color: #fff !important; }' +
+  '[role="menuitem"]:hover, [role="option"]:hover { background-color: #2e3440 !important; }' +
+  '.docs-titlebar-buttons, .docs-title-input, .docs-titlebar-buttons * { background-color: transparent !important; color: #fff !important; }';
 
-  var dmCompute = function (e) {
-    var cs = getComputedStyle(e), out = [];
-    var par = e.parentElement;
-    var img = cs.backgroundImage !== 'none' && /url|gradient/.test(cs.backgroundImage);
-    var ib = img || (par && dm.imgBg.get(par)) || false;
-    dm.imgBg.set(e, ib);
+var parseC = function (s) {
+  var m = /rgba?\(([^)]+)\)/.exec(s || '');
+  if (!m) return null;
+  var p = m[1].split(/[\s,\/]+/).filter(Boolean).map(parseFloat);
+  if (p.length < 3 || p.some(isNaN)) return null;
+  var a = p.length > 3 ? p[3] : 1;
+  if (a > 1) a = a / 100;
+  return { r: p[0], g: p[1], b: p[2], a: a };
+};
+var toHsl = function (c) {
+  var r = c.r/255, g = c.g/255, b = c.b/255;
+  var mx = Math.max(r,g,b), mn = Math.min(r,g,b), h = 0, s = 0, l = (mx+mn)/2, d = mx-mn;
+  if (d) {
+    s = l > 0.5 ? d/(2-mx-mn) : d/(mx+mn);
+    h = mx===r ? (g-b)/d + (g<b?6:0) : mx===g ? (b-r)/d + 2 : (r-g)/d + 4;
+    h /= 6;
+  }
+  return { h: h, s: s, l: l };
+};
+var hueCh = function (p, q, t) {
+  if (t < 0) t += 1;
+  if (t > 1) t -= 1;
+  if (t < 1/6) return p + (q-p)*6*t;
+  if (t < 1/2) return q;
+  if (t < 2/3) return p + (q-p)*(2/3-t)*6;
+  return p;
+};
+var fromHsl = function (h, s, l, a) {
+  var r, g, b;
+  if (!s) { r = g = b = l; }
+  else {
+    var q = l < 0.5 ? l*(1+s) : l+s-l*s, p = 2*l-q;
+    r = hueCh(p,q,h+1/3); g = hueCh(p,q,h); b = hueCh(p,q,h-1/3);
+  }
+  return 'rgba(' + Math.round(r*255) + ',' + Math.round(g*255) + ',' + Math.round(b*255) + ',' + a + ')';
+};
 
-    var bg = parseC(cs.backgroundColor);
-    if (!img && bg && bg.a > 0.05 && lum(bg) > 0.45) out.push(['background-color', dmBg(bg)]);
+var dmBg = function (c) { var h = toHsl(c); return fromHsl(h.h, Math.min(h.s*0.8, 0.6), Math.min(h.l, 0.07 + (1-h.l)*0.2), c.a); };
+var dmTx = function (c) { var h = toHsl(c); return fromHsl(h.h, Math.min(h.s, 0.9), Math.max(h.l, 0.62 + (1-h.l)*0.33), c.a); };
+var dmBd = function (c) { var h = toHsl(c); return fromHsl(h.h, h.s*0.6, Math.min(h.l, 0.16 + (1-h.l)*0.2), c.a); };
 
-    if (!ib) {
-      var tc = parseC(cs.color);
-      if (tc && tc.a > 0.05 && lum(tc) < 0.55) out.push(['color', dmTx(tc)]);
-    }
+var dmSkip = function (e) {
+  return DM_SKIP[e.tagName] || e === host;
+};
 
-    var bw = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderRightWidth) + parseFloat(cs.borderBottomWidth) + parseFloat(cs.borderLeftWidth);
-    if (bw > 0) {
-      var bc = parseC(cs.borderTopColor);
-      if (bc && bc.a > 0.05 && lum(bc) > 0.5) out.push(['border-color', dmBd(bc)]);
-    }
-    return out;
-  };
-
-  var dmApply = function (e, props) {
-    var s = dm.saved.get(e);
-    if (!s) { s = {}; dm.saved.set(e, s); }
-    props.forEach(function (pv) {
-      if (!(pv[0] in s)) s[pv[0]] = [e.style.getPropertyValue(pv[0]), e.style.getPropertyPriority(pv[0])];
-      e.style.setProperty(pv[0], pv[1], 'important');
-    });
-  };
-
-  var dmRevert = function (e) {
-    var s = dm.saved.get(e);
-    if (!s) return;
-    Object.keys(s).forEach(function (p) {
-      if (s[p][0]) e.style.setProperty(p, s[p][0], s[p][1]);
-      else e.style.removeProperty(p);
-    });
-    dm.saved.delete(e);
-  };
-
-  // Process elements in small batches (reads first, then writes) so big pages don't freeze
-  var dmRun = function (list) {
-    var i = 0;
-    (function step() {
-      if (!dm.on) return;
-      var end = Math.min(i + 250, list.length), jobs = [];
-      for (; i < end; i++) {
-        var e = list[i];
-        if (!e.isConnected || dmSkip(e)) continue;
-        var o = dmCompute(e);
-        if (o.length) jobs.push([e, o]);
+var collectAll = function (root) {
+  var list = [];
+  var walk = function (node) {
+    if (!node || node.nodeType !== 1) return;
+    if (node === host) return;
+    
+    if (node.shadowRoot) {
+      if (!node.shadowRoot.querySelector('#nova-yt-css')) {
+        var s = document.createElement('style');
+        s.id = 'nova-yt-css';
+        s.textContent = YT_SEARCH_CSS + GOOGLE_CSS;
+        node.shadowRoot.appendChild(s);
       }
-      jobs.forEach(function (j) { dmApply(j[0], j[1]); });
-      if (i < list.length) setTimeout(step, 0);
-    })();
+      var sc = node.shadowRoot.children;
+      for (var i = 0; i < sc.length; i++) walk(sc[i]);
+    }
+    
+    list.push(node);
+    var ch = node.children;
+    for (var i = 0; i < ch.length; i++) walk(ch[i]);
   };
+  walk(root);
+  return list;
+};
 
-  var dmStart = function () {
-    dmStop();
-    dm.on = 1;
-    fdark.textContent = 'html{color-scheme:dark !important}';
+var dmCompute = function (e) {
+  var cs = getComputedStyle(e), out = [];
+  var img = cs.backgroundImage !== 'none' && /url|gradient/.test(cs.backgroundImage);
+  var isMask = (cs.webkitMaskImage && cs.webkitMaskImage !== 'none') || (cs.maskImage && cs.maskImage !== 'none');
 
-    var html = document.documentElement, body = document.body;
-    var hb = parseC(getComputedStyle(html).backgroundColor);
-    var bb = parseC(getComputedStyle(body).backgroundColor);
-    // Nothing paints a background at all -> give the canvas a dark one
-    if ((!hb || hb.a < 0.05) && (!bb || bb.a < 0.05)) dmApply(html, [['background-color', '#121418']]);
+  var bg = parseC(cs.backgroundColor) || parseC(cs.background);
+  
+  if (img && !isMask) {
+    if (cs.backgroundImage.indexOf('linear-gradient(rgba(20,20,20') === -1) {
+      out.push(['background-image', 'linear-gradient(rgba(20,20,20,0.75), rgba(20,20,20,0.75)), ' + cs.backgroundImage]);
+    }
+    if (bg && bg.a > 0.02) out.push(['background-color', dmBg(bg)]);
+  } else if (bg && bg.a > 0.02) {
+    // NEW FIX: If it's transparent (alpha < 0.5), force it to be an opaque dark color
+    if (bg.a < 0.5) {
+      out.push(['background-color', '#1e2229']);
+    } else {
+      out.push(['background-color', isMask ? dmTx(bg) : dmBg(bg)]);
+    }
+  }
 
-    var list = [html, body].concat(Array.prototype.slice.call(body.querySelectorAll('*')));
-    dmRun(list);
+  var tc = parseC(cs.color);
+  if (tc && tc.a > 0.02) {
+    out.push(['color', dmTx(tc)]);
+    var tf = parseC(cs.webkitTextFillColor);
+    if (tf && tf.a > 0.02) out.push(['-webkit-text-fill-color', dmTx(tf)]);
+  }
 
-    dm.obs = new MutationObserver(function (ms) {
-      var add = [];
-      ms.forEach(function (m) {
-        if (m.type === 'childList') {
-          m.addedNodes.forEach(function (n) {
-            if (n.nodeType === 1 && n !== host) {
-              add.push(n);
-              n.querySelectorAll('*').forEach(function (c) { add.push(c); });
-            }
-          });
-        } else if (m.type === 'attributes') {
-          dmRevert(m.target); // class changed: recompute from the element's new natural style
-          add.push(m.target);
+  var bw = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderRightWidth)
+         + parseFloat(cs.borderBottomWidth) + parseFloat(cs.borderLeftWidth);
+  if (bw > 0) {
+    var bc = parseC(cs.borderTopColor);
+    if (bc && bc.a > 0.02) out.push(['border-color', dmBd(bc)]);
+  }
+
+  if (e.namespaceURI === SVG_NS) {
+    if (cs.fill && cs.fill !== 'none') {
+      var sf = parseC(cs.fill);
+      if (sf && sf.a > 0.02) out.push(['fill', dmTx(sf)]);
+      else out.push(['fill', 'currentColor']);
+    }
+    if (cs.stroke && cs.stroke !== 'none') {
+      var sc = parseC(cs.stroke);
+      if (sc && sc.a > 0.02) out.push(['stroke', dmTx(sc)]);
+      else out.push(['stroke', 'currentColor']);
+    }
+  }
+  return out;
+};
+
+var dmApply = function (e, props) {
+  if (!e || !e.style || typeof e.style.setProperty !== 'function') return;
+  isApplying = true;
+  var s = dm.saved.get(e);
+  if (!s) { s = {}; dm.saved.set(e, s); }
+  for (var i = 0; i < props.length; i++) {
+    var p = props[i];
+    if (!(p[0] in s)) {
+      try { s[p[0]] = [e.style.getPropertyValue(p[0]), e.style.getPropertyPriority(p[0])]; }
+      catch (err) { s[p[0]] = ['', '']; }
+    }
+    try { e.style.setProperty(p[0], p[1], 'important'); } catch (err) {}
+  }
+  setTimeout(function() { isApplying = false; }, 0);
+};
+
+var dmRevert = function (e) {
+  if (!e || !e.style || typeof e.style.setProperty !== 'function') return;
+  isApplying = true;
+  var s = dm.saved.get(e);
+  if (!s) { setTimeout(function() { isApplying = false; }, 0); return; }
+  for (var k in s) {
+    if (!Object.prototype.hasOwnProperty.call(s, k)) continue;
+    var v = s[k];
+    try {
+      if (v[0]) e.style.setProperty(k, v[0], v[1]);
+      else e.style.removeProperty(k);
+    } catch (err) {}
+  }
+  dm.saved.delete(e);
+  setTimeout(function() { isApplying = false; }, 0);
+};
+
+var dmRun = function (list) {
+  var token = dm.token;
+  var i = 0, jobs = [];
+  var readStep = function () {
+    if (!dm.on || token !== dm.token) return;
+    var end = Math.min(i + 300, list.length);
+    for (; i < end; i++) {
+      var e = list[i];
+      if (!e.isConnected || dmSkip(e) || dm.saved.has(e)) continue;
+      var o = dmCompute(e);
+      if (o.length) jobs.push([e, o]);
+    }
+    if (i < list.length) { setTimeout(readStep, 0); return; }
+    var j = 0;
+    var writeStep = function () {
+      if (!dm.on || token !== dm.token) return;
+      var endJ = Math.min(j + 300, jobs.length);
+      for (; j < endJ; j++) dmApply(jobs[j][0], jobs[j][1]);
+      if (j < jobs.length) setTimeout(writeStep, 0);
+    };
+    writeStep();
+  };
+  readStep();
+};
+
+var dmStart = function () {
+  dmStop();
+  dm.on = 1;
+  dm.token++;
+  
+  fdark.textContent = 
+    'html{color-scheme:dark !important}' +
+    'option,optgroup{background-color:#1e2229 !important;color:#fff !important}' +
+    '::-webkit-calendar-picker-indicator{filter:invert(1)}' +
+    'input:-webkit-autofill,textarea:-webkit-autofill,select:-webkit-autofill{-webkit-text-fill-color:#fff !important; -webkit-box-shadow: 0 0 0px 1000px #1e2229 inset !important; transition: background-color 5000s ease-in-out 0s;}' +
+    YT_SEARCH_CSS + GOOGLE_CSS; 
+
+  var html = document.documentElement, body = document.body;
+  var hb = parseC(getComputedStyle(html).backgroundColor);
+  var bb = parseC(getComputedStyle(body).backgroundColor);
+  if ((!hb || hb.a < 0.05) && (!bb || bb.a < 0.05)) dmApply(html, [['background-color', '#121418']]);
+
+  dmRun(collectAll(html));
+
+  dm.obs = new MutationObserver(function (ms) {
+    if (isApplying) return; // Block the infinite loop!
+    
+    var add = [];
+    ms.forEach(function (m) {
+      if (m.type === 'childList') {
+        m.addedNodes.forEach(function (n) {
+          if (n.nodeType === 1 && n !== host) collectAll(n).forEach(function (c) { add.push(c); });
+        });
+      } else if (m.type === 'attributes') {
+        // Catch YouTube changing its own inline styles for the search dropdown
+        var isYT = m.target.className && typeof m.target.className === 'string' && m.target.className.indexOf('ytSuggestionComponent') > -1;
+        if (m.attributeName === 'style' && !isYT) return; // Ignore general style changes to save CPU
+
+        var tag = m.target.tagName || '';
+        if (tag.indexOf('YTD-') !== 0 && tag.indexOf('TP-YT-') !== 0) {
+          dmRevert(m.target);
         }
-      });
-      if (add.length) dmRun(add);
+        add.push(m.target);
+      }
     });
-    dm.obs.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-  };
+    if (add.length) dmRun(add);
+  });
+  
+  // Watch both class and style, but filtered to prevent freezing
+  dm.obs.observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style'] });
 
-  var dmStop = function () {
-    dm.on = 0;
-    if (dm.obs) { dm.obs.disconnect(); dm.obs = null; }
-    Array.from(dm.saved.keys()).forEach(dmRevert);
-    dm.imgBg = new WeakMap();
-    fdark.textContent = '';
-  };
+  dm.sweep = setInterval(function () {
+    if (!dm.on) return;
+    collectAll(document.documentElement);
+  }, 1000);
+};
 
-  $('tg-fdark').onchange = function (e) {
-    if (e.target.checked) dmStart();
-    else dmStop();
-  };
+var dmStop = function () {
+  dm.on = 0;
+  dm.token++;
+  if (dm.obs) { dm.obs.disconnect(); dm.obs = null; }
+  clearInterval(dm.sweep); dm.sweep = 0;
+  Array.from(dm.saved.keys()).forEach(dmRevert);
+  fdark.textContent = '';
+};
 
+$('tg-fdark').onchange = function (e) {
+  if (e.target.checked) dmStart();
+  else dmStop();
+};
   $('tg-inv').onchange = function (e) {
     document.documentElement.classList.toggle('n-inv', e.target.checked);
   };
